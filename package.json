@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "description": "AI 문맥 제안 기능을 가진 똑똑한 메신저 앱",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

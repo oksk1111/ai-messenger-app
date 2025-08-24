@@ -36,7 +36,7 @@ function App() {
         </a>
       </div>
       <h1>🤖 AI Messenger App</h1>
-      <p>실시간 채팅 & Sequential Thinking Demo</p>
+      <p>AI 문맥 제안 기능을 가진 똑똑한 메신저</p>
       
       {/* 탭 네비게이션 */}
       <div style={{ 
@@ -61,7 +61,7 @@ function App() {
             transition: 'all 0.2s'
           }}
         >
-          💬 실시간 채팅
+          💬 AI 문맥 제안 채팅
         </button>
         <button 
           onClick={() => setActiveTab('thinking')}
@@ -84,9 +84,9 @@ function App() {
       {/* 채팅 탭 */}
       {activeTab === 'chat' && (
         <div className="card">
-          <h2>💬 실시간 AI 채팅</h2>
+          <h2>💬 AI 문맥 제안 채팅</h2>
           <p style={{ marginBottom: '20px', color: '#666' }}>
-            AI와 실시간으로 대화해보세요! 다양한 무료 AI 모델을 지원합니다.
+            유저간 대화에서 AI가 문맥을 파악해서 다음 발언을 제안해드려요!
           </p>
           
           <ChatInterface />
@@ -99,15 +99,15 @@ function App() {
             fontSize: '14px',
             color: '#666'
           }}>
-            <h4 style={{ margin: '0 0 8px 0' }}>🔧 지원하는 AI 모델:</h4>
+            <h4 style={{ margin: '0 0 8px 0' }}>🤖 AI 제안 엔진:</h4>
             <ul style={{ margin: 0, paddingLeft: '20px' }}>
-              <li><strong>Mock</strong>: 테스트용 (기본값)</li>
+              <li><strong>Mock</strong>: 테스트용 가상 AI (기본값)</li>
               <li><strong>Ollama</strong>: 로컬 실행, 완전 무료 (권장)</li>
-              <li><strong>Groq</strong>: 클라우드, 무료 티어 제공</li>
+              <li><strong>Groq</strong>: 클라우드 AI, 무료 티어 제공</li>
               <li><strong>HuggingFace</strong>: 오픈소스 모델, 무료 티어</li>
             </ul>
             <p style={{ margin: '8px 0 0 0', fontStyle: 'italic' }}>
-              💡 가장 비용 효율적인 방법은 <strong>Ollama를 로컬에서 실행</strong>하는 것입니다!
+              💡 가장 경제적인 방법은 <strong>Ollama를 로컬에서 실행</strong>하는 것입니다!
             </p>
           </div>
         </div>

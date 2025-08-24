@@ -212,7 +212,8 @@ const ChatInput = ({ onSendMessage, disabled = false }) => {
             fontSize: '14px',
             outline: 'none',
             transition: 'border-color 0.2s',
-            backgroundColor: disabled ? '#f5f5f5' : '#fff'
+            backgroundColor: disabled ? '#f5f5f5' : '#fff',
+            color: '#333'
           }}
           onFocus={(e) => e.target.style.borderColor = '#007bff'}
           onBlur={(e) => e.target.style.borderColor = '#e0e0e0'}
@@ -319,10 +320,10 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
           zIndex: 1000,
           minWidth: '300px'
         }}>
-          <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>AI 모델 설정</h3>
+          <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#333' }}>AI 모델 설정</h3>
           <form onSubmit={handleConfigSubmit}>
             <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#333' }}>
                 API 타입:
               </label>
               <select
@@ -332,7 +333,8 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
                   width: '100%',
                   padding: '8px',
                   border: '1px solid #e0e0e0',
-                  borderRadius: '4px'
+                  borderRadius: '4px',
+                  color: '#333'
                 }}
               >
                 <option value="mock">Mock (테스트용)</option>
@@ -344,7 +346,7 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
 
             {(aiConfig.apiType === 'groq' || aiConfig.apiType === 'huggingface') && (
               <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#333' }}>
                   API Key:
                 </label>
                 <input
@@ -355,7 +357,8 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
                     width: '100%',
                     padding: '8px',
                     border: '1px solid #e0e0e0',
-                    borderRadius: '4px'
+                    borderRadius: '4px',
+                    color: '#333'
                   }}
                   placeholder="API 키를 입력하세요"
                 />
@@ -364,7 +367,7 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
 
             {aiConfig.apiType === 'ollama' && (
               <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#333' }}>
                   모델:
                 </label>
                 <select
@@ -374,7 +377,8 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
                     width: '100%',
                     padding: '8px',
                     border: '1px solid #e0e0e0',
-                    borderRadius: '4px'
+                    borderRadius: '4px',
+                    color: '#333'
                   }}
                 >
                   <option value="llama2">Llama 2</option>

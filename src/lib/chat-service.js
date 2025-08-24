@@ -156,6 +156,21 @@ export class AIMessageGenerator {
         if (!response.ok) {
           throw new Error('Ollama not running. Please start Ollama first.');
         }
+        const data = await response.json();
+        console.log('Available Ollama models:', data.models);
+        
+        // 선택한 모델이 사용 가능한지 확인
+        const availableModels = data.models.map(m => m.name);
+        if (availableModels.length === 0) {
+          throw new Error('No models installed. Please install a model first: ollama pull llama2');
+        }
+        
+        // 선택한 모델이 없으면 첫 번째 사용 가능한 모델 사용
+        if (!availableModels.some(name => name.includes(this.model))) {
+          this.model = availableModels[0];
+          console.log(`Model '${this.model}' not found, using '${this.model}' instead`);
+        }
+        
         this.isInitialized = true;
       } else if (this.apiType === 'groq') {
         if (!this.apiKey) {
@@ -176,9 +191,9 @@ export class AIMessageGenerator {
   }
 
   /**
-   * AI 응답 생성
+   * 문맥 기반 다음 발언 제안 생성
    */
-  async generateResponse(message, context = []) {
+  async generateContextSuggestion(messages, targetUser = null) {
     if (!this.isInitialized) {
       await this.initialize();
     }
@@ -186,19 +201,267 @@ export class AIMessageGenerator {
     try {
       switch (this.apiType) {
         case 'ollama':
-          return await this.generateWithOllama(message, context);
+          return await this.generateSuggestionWithOllama(messages, targetUser);
         case 'groq':
-          return await this.generateWithGroq(message, context);
+          return await this.generateSuggestionWithGroq(messages, targetUser);
         case 'huggingface':
-          return await this.generateWithHuggingFace(message, context);
+          return await this.generateSuggestionWithHuggingFace(messages, targetUser);
         case 'mock':
         default:
-          return await this.generateMockResponse(message, context);
+          return await this.generateMockSuggestion(messages, targetUser);
       }
     } catch (error) {
-      console.error('AI response generation failed:', error);
-      return this.getFallbackResponse();
+      console.error('AI suggestion generation failed:', error);
+      return this.getFallbackSuggestion();
     }
+  }
+
+  /**
+   * Ollama로 문맥 제안 생성
+   */
+  async generateSuggestionWithOllama(messages, targetUser) {
+    const prompt = this.buildSuggestionPrompt(messages, targetUser);
+    
+    const response = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.model,
+        prompt: prompt,
+        stream: false,
+        options: {
+          temperature: 0.8,
+          max_tokens: 50
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return this.cleanSuggestion(data.response);
+  }
+
+  /**
+   * Groq로 문맥 제안 생성
+   */
+  async generateSuggestionWithGroq(messages, targetUser) {
+    const chatMessages = this.buildSuggestionChatMessages(messages, targetUser);
+    
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: chatMessages,
+        model: 'mixtral-8x7b-32768',
+        temperature: 0.8,
+        max_tokens: 50
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Groq API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return this.cleanSuggestion(data.choices?.[0]?.message?.content);
+  }
+
+  /**
+   * HuggingFace로 문맥 제안 생성
+   */
+  async generateSuggestionWithHuggingFace(messages, targetUser) {
+    const prompt = this.buildSuggestionPrompt(messages, targetUser);
+    
+    const response = await fetch(
+      `https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            max_length: 50,
+            temperature: 0.8
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HuggingFace API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return this.cleanSuggestion(data?.[0]?.generated_text);
+  }
+
+  /**
+   * Mock 문맥 제안 생성 (테스트용)
+   */
+  async generateMockSuggestion(messages, targetUser) {
+    // 실제 응답처럼 보이도록 지연 추가
+    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000));
+
+    if (!messages || messages.length === 0) {
+      return this.getRandomGreeting();
+    }
+
+    const lastMessage = messages[messages.length - 1];
+    const lastContent = lastMessage.content.toLowerCase();
+
+    // 문맥 기반 제안 생성
+    if (lastContent.includes('안녕') || lastContent.includes('hi') || lastContent.includes('hello')) {
+      const greetings = [
+        "안녕하세요! 만나서 반가워요",
+        "반가워요! 오늘 어떠세요?",
+        "안녕! 좋은 하루 보내고 계신가요?",
+        "안녕하세요! 어떻게 지내세요?"
+      ];
+      return greetings[Math.floor(Math.random() * greetings.length)];
+    }
+
+    if (lastContent.includes('?') || lastContent.includes('어떻게') || lastContent.includes('왜')) {
+      const questionResponses = [
+        "좋은 질문이네요!",
+        "그건 정말 궁금하네요",
+        "저도 그게 궁금해요",
+        "흥미로운 점이네요"
+      ];
+      return questionResponses[Math.floor(Math.random() * questionResponses.length)];
+    }
+
+    if (lastContent.includes('고마') || lastContent.includes('감사')) {
+      const thankResponses = [
+        "천만에요!",
+        "별 말씀을요",
+        "도움이 되었다니 다행이에요",
+        "언제든지 말씀하세요"
+      ];
+      return thankResponses[Math.floor(Math.random() * thankResponses.length)];
+    }
+
+    if (lastContent.includes('좋다') || lastContent.includes('멋지다') || lastContent.includes('훌륭')) {
+      const positiveResponses = [
+        "맞아요, 정말 좋네요!",
+        "저도 그렇게 생각해요",
+        "완전 동감입니다",
+        "정말 멋진 것 같아요"
+      ];
+      return positiveResponses[Math.floor(Math.random() * positiveResponses.length)];
+    }
+
+    if (lastContent.includes('힘들다') || lastContent.includes('어렵다') || lastContent.includes('문제')) {
+      const supportResponses = [
+        "힘내세요! 잘 해결될 거예요",
+        "어려우시겠지만 응원할게요",
+        "괜찮아질 거예요",
+        "함께 해결해봐요"
+      ];
+      return supportResponses[Math.floor(Math.random() * supportResponses.length)];
+    }
+
+    // 일반적인 대화 연결 제안
+    const generalSuggestions = [
+      "그렇게 생각하시는군요",
+      "더 자세히 얘기해주세요",
+      "흥미롭네요!",
+      "저는 어떻게 생각하냐면요...",
+      "그런 관점도 있네요",
+      "정말요? 신기하네요",
+      "이해해요",
+      "맞는 말씀이에요",
+      "다른 의견도 있을 것 같아요",
+      "좋은 생각이에요!"
+    ];
+
+    return generalSuggestions[Math.floor(Math.random() * generalSuggestions.length)];
+  }
+
+  /**
+   * 문맥 제안용 프롬프트 구성
+   */
+  buildSuggestionPrompt(messages, targetUser) {
+    let prompt = "You are helping to suggest the next natural response in a Korean conversation. ";
+    prompt += "Based on the conversation context, suggest ONE short, natural Korean response (maximum 20 characters) that would fit well in this conversation flow.\n\n";
+    prompt += "Recent conversation:\n";
+    
+    messages.slice(-5).forEach(msg => {
+      prompt += `${msg.sender}: ${msg.content}\n`;
+    });
+    
+    prompt += `\nSuggest a natural Korean response for the next speaker (keep it very short and conversational): `;
+    return prompt;
+  }
+
+  /**
+   * 문맥 제안용 챗 메시지 구성
+   */
+  buildSuggestionChatMessages(messages, targetUser) {
+    const systemMessage = {
+      role: 'system',
+      content: 'You are helping to suggest natural Korean conversation responses. Generate ONE very short, natural Korean response (maximum 20 characters) that would fit the conversation context. No explanations, just the suggested response.'
+    };
+
+    const contextMessage = {
+      role: 'user',
+      content: `Recent conversation:\n${messages.slice(-5).map(msg => `${msg.sender}: ${msg.content}`).join('\n')}\n\nSuggest a natural Korean response:`
+    };
+
+    return [systemMessage, contextMessage];
+  }
+
+  /**
+   * 제안 텍스트 정리 (따옴표, 줄바꿈 제거)
+   */
+  cleanSuggestion(suggestion) {
+    if (!suggestion) return this.getFallbackSuggestion();
+    
+    return suggestion
+      .replace(/^["']|["']$/g, '') // 시작/끝 따옴표 제거
+      .replace(/\n/g, ' ') // 줄바꿈을 스페이스로 변경
+      .trim()
+      .slice(0, 50); // 최대 50자 제한
+  }
+
+  /**
+   * 랜덤 인사말
+   */
+  getRandomGreeting() {
+    const greetings = [
+      "안녕하세요!",
+      "반가워요!",
+      "좋은 하루예요!",
+      "안녕! 어떻게 지내세요?",
+      "만나서 반가워요",
+      "오늘 날씨 좋네요!"
+    ];
+    return greetings[Math.floor(Math.random() * greetings.length)];
+  }
+
+  /**
+   * 폴백 제안
+   */
+  getFallbackSuggestion() {
+    const fallbacks = [
+      "그렇네요",
+      "맞아요",
+      "좋은 생각이에요",
+      "흥미롭네요",
+      "이해해요",
+      "정말요?"
+    ];
+    return fallbacks[Math.floor(Math.random() * fallbacks.length)];
   }
 
   /**
@@ -387,6 +650,75 @@ export class AIMessageGenerator {
     ];
     return fallbacks[Math.floor(Math.random() * fallbacks.length)];
   }
+
+  /**
+   * Ollama 상태 및 모델 목록 확인
+   */
+  static async getOllamaStatus() {
+    try {
+      const response = await fetch('http://localhost:11434/api/tags');
+      if (!response.ok) {
+        return { 
+          isRunning: false, 
+          models: [], 
+          error: 'Ollama server is not running' 
+        };
+      }
+      
+      const data = await response.json();
+      return {
+        isRunning: true,
+        models: data.models || [],
+        error: null
+      };
+    } catch (error) {
+      return {
+        isRunning: false,
+        models: [],
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * 특정 모델 테스트
+   */
+  static async testOllamaModel(modelName) {
+    try {
+      const response = await fetch('http://localhost:11434/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: modelName,
+          prompt: 'Hello, respond with just "Hi there!"',
+          stream: false,
+          options: {
+            temperature: 0.1,
+            max_tokens: 10
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Model test failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        response: data.response,
+        model: modelName
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        model: modelName
+      };
+    }
+  }
 }
 
 /**
@@ -447,15 +779,15 @@ export class ChatService {
   }
 
   /**
-   * 메시지 전송
+   * 사용자 메시지 전송 (AI 응답 없이)
    */
-  async sendMessage(content, type = MESSAGE_TYPES.USER, sender = 'User') {
+  async sendUserMessage(content, sender = 'User') {
     if (!this.currentRoomId) {
       throw new Error('No active chat room');
     }
 
     const room = this.rooms.get(this.currentRoomId);
-    const message = new ChatMessage(content, type, sender);
+    const message = new ChatMessage(content, MESSAGE_TYPES.USER, sender);
     
     // 메시지를 방에 추가
     room.addMessage(message);
@@ -463,24 +795,30 @@ export class ChatService {
     // 리스너들에게 새 메시지 알림
     this.notifyMessageListeners(message, room);
 
-    // AI 응답 생성 (사용자 메시지이고 AI가 활성화된 경우)
-    if (type === MESSAGE_TYPES.USER && this.isAIEnabled) {
-      setTimeout(async () => {
-        try {
-          const context = room.getRecentMessages(5);
-          const aiResponse = await this.aiGenerator.generateResponse(content, context);
-          
-          const aiMessage = new ChatMessage(aiResponse, MESSAGE_TYPES.AI, 'AI Assistant');
-          room.addMessage(aiMessage);
-          
-          this.notifyMessageListeners(aiMessage, room);
-        } catch (error) {
-          console.error('Failed to generate AI response:', error);
-        }
-      }, 500); // 자연스러운 지연
+    return message;
+  }
+
+  /**
+   * 문맥 기반 다음 발언 제안 생성
+   */
+  async generateContextSuggestion(recentMessages) {
+    if (!this.isAIEnabled) {
+      return '';
     }
 
-    return message;
+    try {
+      return await this.aiGenerator.generateContextSuggestion(recentMessages);
+    } catch (error) {
+      console.error('Failed to generate context suggestion:', error);
+      return '';
+    }
+  }
+
+  /**
+   * 메시지 전송 (기존 메서드 - 호환성 유지)
+   */
+  async sendMessage(content, type = MESSAGE_TYPES.USER, sender = 'User') {
+    return await this.sendUserMessage(content, sender);
   }
 
   /**

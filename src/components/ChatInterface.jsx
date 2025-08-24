@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { globalChatService, MESSAGE_TYPES } from '../lib/chat-service';
+import { globalChatService, MESSAGE_TYPES, AIMessageGenerator } from '../lib/chat-service';
 
 /**
  * 채팅 메시지 컴포넌트
  */
 const ChatMessage = ({ message }) => {
-  const isAI = message.type === MESSAGE_TYPES.AI;
   const isSystem = message.type === MESSAGE_TYPES.SYSTEM;
   const isUser = message.type === MESSAGE_TYPES.USER;
 
+  // AI 메시지는 표시하지 않음 (제안으로만 사용)
+  if (message.type === MESSAGE_TYPES.AI) {
+    return null;
+  }
+
   const messageStyle = {
     display: 'flex',
-    flexDirection: isUser ? 'row-reverse' : 'row',
+    flexDirection: 'row',
     marginBottom: '12px',
     alignItems: 'flex-start'
   };
@@ -26,12 +30,7 @@ const ChatMessage = ({ message }) => {
     ...(isUser ? {
       backgroundColor: '#007bff',
       color: 'white',
-      borderBottomRightRadius: '4px'
-    } : isAI ? {
-      backgroundColor: '#f1f3f4',
-      color: '#333',
-      borderBottomLeftRadius: '4px',
-      border: '1px solid #e0e0e0'
+      borderBottomLeftRadius: '4px'
     } : {
       backgroundColor: '#fff3cd',
       color: '#856404',
@@ -44,7 +43,7 @@ const ChatMessage = ({ message }) => {
   const senderStyle = {
     fontSize: '12px',
     color: '#666',
-    margin: isUser ? '0 8px 4px 0' : '0 0 4px 8px',
+    margin: '0 0 4px 8px',
     alignSelf: 'flex-end'
   };
 
@@ -52,21 +51,21 @@ const ChatMessage = ({ message }) => {
     fontSize: '11px',
     color: '#999',
     marginTop: '4px',
-    textAlign: isUser ? 'right' : 'left'
+    textAlign: 'left'
   };
 
   const avatarStyle = {
     width: '32px',
     height: '32px',
     borderRadius: '50%',
-    backgroundColor: isAI ? '#4caf50' : isUser ? '#007bff' : '#ffc107',
+    backgroundColor: isUser ? '#007bff' : '#ffc107',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '14px',
     fontWeight: 'bold',
     color: 'white',
-    margin: isUser ? '0 0 0 8px' : '0 8px 0 0',
+    margin: '0 8px 0 0',
     flexShrink: 0
   };
 
@@ -86,7 +85,7 @@ const ChatMessage = ({ message }) => {
   return (
     <div style={messageStyle}>
       <div style={avatarStyle}>
-        {isAI ? '🤖' : isUser ? '👤' : '🔔'}
+        {isUser ? '👤' : '🔔'}
       </div>
       <div style={{ flex: 1 }}>
         <div style={senderStyle}>
@@ -170,15 +169,39 @@ const TypingIndicator = ({ isVisible }) => {
 /**
  * 채팅 입력 컴포넌트
  */
-const ChatInput = ({ onSendMessage, disabled = false }) => {
+const ChatInput = ({ onSendMessage, disabled = false, aiSuggestion, onAcceptSuggestion }) => {
   const [message, setMessage] = useState('');
+  const [showSuggestion, setShowSuggestion] = useState(false);
   const inputRef = useRef(null);
+  const suggestionTimeoutRef = useRef(null);
+
+  // 입력창이 비어있을 때 1초 후 AI 제안 표시
+  useEffect(() => {
+    if (message.trim() === '' && aiSuggestion && !disabled) {
+      suggestionTimeoutRef.current = setTimeout(() => {
+        setShowSuggestion(true);
+      }, 1000);
+    } else {
+      setShowSuggestion(false);
+      if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+        suggestionTimeoutRef.current = null;
+      }
+    }
+
+    return () => {
+      if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+      }
+    };
+  }, [message, aiSuggestion, disabled]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (message.trim() && !disabled) {
       onSendMessage(message.trim());
       setMessage('');
+      setShowSuggestion(false);
     }
   };
 
@@ -186,21 +209,118 @@ const ChatInput = ({ onSendMessage, disabled = false }) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+    } else if (e.key === 'Tab' && showSuggestion && aiSuggestion) {
+      e.preventDefault();
+      acceptSuggestion();
     }
+  };
+
+  const handleInputChange = (e) => {
+    setMessage(e.target.value);
+  };
+
+  const acceptSuggestion = () => {
+    if (aiSuggestion) {
+      setMessage(aiSuggestion);
+      setShowSuggestion(false);
+      onAcceptSuggestion && onAcceptSuggestion(aiSuggestion);
+      inputRef.current?.focus();
+    }
+  };
+
+  const dismissSuggestion = () => {
+    setShowSuggestion(false);
   };
 
   return (
     <div style={{
       borderTop: '1px solid #e0e0e0',
       padding: '16px',
-      backgroundColor: '#fff'
+      backgroundColor: '#fff',
+      position: 'relative'
     }}>
+      {/* AI 제안 말풍선 */}
+      {showSuggestion && aiSuggestion && (
+        <div style={{
+          position: 'absolute',
+          bottom: '100%',
+          left: '20px',
+          right: '20px',
+          marginBottom: '8px',
+          backgroundColor: '#28a745',
+          color: 'white',
+          padding: '12px 16px',
+          borderRadius: '18px',
+          fontSize: '14px',
+          boxShadow: '0 4px 12px rgba(40, 167, 69, 0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          animation: 'slideUp 0.3s ease-out',
+          zIndex: 1000
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+            <span style={{ marginRight: '8px' }}>💡</span>
+            <span style={{ flex: 1 }}>{aiSuggestion}</span>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginLeft: '12px' }}>
+            <button
+              type="button"
+              onClick={acceptSuggestion}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                color: 'white',
+                borderRadius: '12px',
+                padding: '4px 8px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                transition: 'background 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
+              onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
+            >
+              ✓ 선택
+            </button>
+            <button
+              type="button"
+              onClick={dismissSuggestion}
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                color: 'white',
+                borderRadius: '12px',
+                padding: '4px 8px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                transition: 'background 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
+              onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.1)'}
+            >
+              ✕
+            </button>
+          </div>
+          {/* 말풍선 꼬리 */}
+          <div style={{
+            position: 'absolute',
+            bottom: '-6px',
+            left: '30px',
+            width: '12px',
+            height: '12px',
+            backgroundColor: '#28a745',
+            transform: 'rotate(45deg)',
+            borderRadius: '2px'
+          }}></div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '8px' }}>
         <input
           ref={inputRef}
           type="text"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={handleInputChange}
           onKeyPress={handleKeyPress}
           placeholder="메시지를 입력하세요..."
           disabled={disabled}
@@ -213,7 +333,8 @@ const ChatInput = ({ onSendMessage, disabled = false }) => {
             outline: 'none',
             transition: 'border-color 0.2s',
             backgroundColor: disabled ? '#f5f5f5' : '#fff',
-            color: '#333'
+            color: '#333',
+            boxSizing: 'border-box'
           }}
           onFocus={(e) => e.target.style.borderColor = '#007bff'}
           onBlur={(e) => e.target.style.borderColor = '#e0e0e0'}
@@ -237,6 +358,33 @@ const ChatInput = ({ onSendMessage, disabled = false }) => {
           전송
         </button>
       </form>
+
+      {showSuggestion && aiSuggestion && (
+        <div style={{
+          marginTop: '8px',
+          fontSize: '12px',
+          color: '#666',
+          textAlign: 'center'
+        }}>
+          💡 Tab키를 눌러서 빠르게 선택할 수 있어요
+        </div>
+      )}
+
+      {/* 애니메이션 스타일 */}
+      <style>
+        {`
+          @keyframes slideUp {
+            from {
+              opacity: 0;
+              transform: translateY(10px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+        `}
+      </style>
     </div>
   );
 };
@@ -251,11 +399,53 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
     apiKey: '',
     model: 'llama2'
   });
+  const [ollamaStatus, setOllamaStatus] = useState({ 
+    isRunning: false, 
+    models: [], 
+    error: null,
+    isChecking: false
+  });
+
+  // Ollama 상태 확인 함수
+  const checkOllamaStatus = async () => {
+    setOllamaStatus(prev => ({ ...prev, isChecking: true }));
+    try {
+      const status = await AIMessageGenerator.getOllamaStatus();
+      setOllamaStatus({ ...status, isChecking: false });
+      
+      // 사용 가능한 모델이 있으면 첫 번째 모델을 기본값으로 설정
+      if (status.models && status.models.length > 0) {
+        const modelName = status.models[0].name.split(':')[0]; // 태그 제거
+        setAiConfig(prev => ({ ...prev, model: modelName }));
+      }
+    } catch (error) {
+      setOllamaStatus({ 
+        isRunning: false, 
+        models: [], 
+        error: error.message,
+        isChecking: false 
+      });
+    }
+  };
+
+  // AI 설정 패널이 열릴 때 Ollama 상태 확인
+  useEffect(() => {
+    if (showAIConfig && aiConfig.apiType === 'ollama') {
+      checkOllamaStatus();
+    }
+  }, [showAIConfig, aiConfig.apiType]);
 
   const handleConfigSubmit = (e) => {
     e.preventDefault();
     onConfigureAI(aiConfig);
     setShowAIConfig(false);
+  };
+
+  const getParticipantList = () => {
+    if (!room || !room.participants || room.participants.length === 0) {
+      return "사용자 채팅방 (AI 문맥 제안 지원)";
+    }
+    return `참가자: ${room.participants.join(', ')}`;
   };
 
   return (
@@ -269,10 +459,10 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
     }}>
       <div>
         <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: 'bold' }}>
-          {room ? room.name : 'AI Messenger'}
+          {room ? room.name : 'User Messenger'}
         </h2>
         <p style={{ margin: 0, fontSize: '14px', color: '#666' }}>
-          {room ? `${room.messages.length}개 메시지` : '채팅방을 선택하세요'}
+          {room ? getParticipantList() : '채팅방을 선택하세요'}
         </p>
       </div>
       
@@ -288,7 +478,7 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
             cursor: 'pointer'
           }}
         >
-          ⚙️ AI 설정
+          ⚙️ AI 제안 설정
         </button>
         
         <button
@@ -303,7 +493,7 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
             cursor: 'pointer'
           }}
         >
-          {isAIEnabled ? '🤖 AI 켜짐' : '🚫 AI 꺼짐'}
+          {isAIEnabled ? '💡 AI 제안 켜짐' : '🚫 AI 제안 꺼짐'}
         </button>
       </div>
 
@@ -367,25 +557,96 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
 
             {aiConfig.apiType === 'ollama' && (
               <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#333' }}>
-                  모델:
-                </label>
-                <select
-                  value={aiConfig.model}
-                  onChange={(e) => setAiConfig({...aiConfig, model: e.target.value})}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    border: '1px solid #e0e0e0',
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#333' }}>
+                    Ollama 상태:
+                  </label>
+                  <button 
+                    type="button"
+                    onClick={checkOllamaStatus}
+                    disabled={ollamaStatus.isChecking}
+                    style={{
+                      marginLeft: '8px',
+                      padding: '4px 8px',
+                      fontSize: '12px',
+                      backgroundColor: '#f8f9fa',
+                      border: '1px solid #e0e0e0',
+                      borderRadius: '4px',
+                      cursor: ollamaStatus.isChecking ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {ollamaStatus.isChecking ? '확인 중...' : '🔄 새로고침'}
+                  </button>
+                </div>
+                
+                <div style={{ 
+                  padding: '8px', 
+                  backgroundColor: ollamaStatus.isRunning ? '#d4edda' : '#f8d7da',
+                  border: `1px solid ${ollamaStatus.isRunning ? '#c3e6cb' : '#f5c6cb'}`,
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  marginBottom: '8px'
+                }}>
+                  {ollamaStatus.isRunning ? (
+                    <div>
+                      ✅ Ollama 서버 실행 중 
+                      {ollamaStatus.models.length > 0 && (
+                        <div>📦 설치된 모델: {ollamaStatus.models.length}개</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      ❌ Ollama 서버가 실행되지 않음
+                      <div>💡 터미널에서 'ollama serve' 명령어로 시작하세요</div>
+                    </div>
+                  )}
+                  {ollamaStatus.error && (
+                    <div style={{ color: '#721c24', marginTop: '4px' }}>
+                      오류: {ollamaStatus.error}
+                    </div>
+                  )}
+                </div>
+
+                {ollamaStatus.models.length > 0 && (
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#333' }}>
+                      모델 선택:
+                    </label>
+                    <select
+                      value={aiConfig.model}
+                      onChange={(e) => setAiConfig({...aiConfig, model: e.target.value})}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        border: '1px solid #e0e0e0',
+                        borderRadius: '4px',
+                        color: '#333'
+                      }}
+                    >
+                      {ollamaStatus.models.map((model) => (
+                        <option key={model.name} value={model.name.split(':')[0]}>
+                          {model.name} ({(model.size / 1024 / 1024 / 1024).toFixed(1)}GB)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {ollamaStatus.models.length === 0 && ollamaStatus.isRunning && (
+                  <div style={{ 
+                    padding: '8px', 
+                    backgroundColor: '#fff3cd',
+                    border: '1px solid #ffeaa7',
                     borderRadius: '4px',
-                    color: '#333'
-                  }}
-                >
-                  <option value="llama2">Llama 2</option>
-                  <option value="codellama">CodeLlama</option>
-                  <option value="mistral">Mistral</option>
-                  <option value="neural-chat">Neural Chat</option>
-                </select>
+                    fontSize: '12px'
+                  }}>
+                    ⚠️ 설치된 모델이 없습니다.<br/>
+                    터미널에서 다음 명령어로 모델을 설치하세요:<br/>
+                    <code style={{ backgroundColor: '#f8f9fa', padding: '2px 4px', borderRadius: '2px' }}>
+                      ollama pull llama2
+                    </code>
+                  </div>
+                )}
               </div>
             )}
 
@@ -433,9 +694,11 @@ const ChatHeader = ({ room, onToggleAI, isAIEnabled, onConfigureAI }) => {
 const ChatInterface = () => {
   const [currentRoom, setCurrentRoom] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [isTyping, setIsTyping] = useState(false);
   const [isAIEnabled, setIsAIEnabled] = useState(true);
+  const [aiSuggestion, setAiSuggestion] = useState('');
+  const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
   const messagesEndRef = useRef(null);
+  const suggestionTimeoutRef = useRef(null);
 
   // 메시지 자동 스크롤
   const scrollToBottom = () => {
@@ -444,7 +707,45 @@ const ChatInterface = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping]);
+  }, [messages]);
+
+  // AI 문맥 기반 다음 발언 제안 생성
+  const generateContextualSuggestion = async () => {
+    if (!isAIEnabled || !currentRoom || isGeneratingSuggestion) return;
+
+    setIsGeneratingSuggestion(true);
+    try {
+      const recentMessages = currentRoom.messages.slice(-5); // 최근 5개 메시지 참조
+      const suggestion = await globalChatService.generateContextSuggestion(recentMessages);
+      setAiSuggestion(suggestion);
+    } catch (error) {
+      console.error('Failed to generate suggestion:', error);
+      setAiSuggestion('');
+    } finally {
+      setIsGeneratingSuggestion(false);
+    }
+  };
+
+  // 메시지가 추가될 때마다 새로운 제안 생성 (1초 지연)
+  useEffect(() => {
+    if (messages.length > 0 && isAIEnabled) {
+      // 기존 타이머 클리어
+      if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+      }
+      
+      // 1초 후 새 제안 생성
+      suggestionTimeoutRef.current = setTimeout(() => {
+        generateContextualSuggestion();
+      }, 1000);
+    }
+
+    return () => {
+      if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+      }
+    };
+  }, [messages, isAIEnabled]);
 
   // 컴포넌트 마운트 시 초기화
   useEffect(() => {
@@ -457,6 +758,11 @@ const ChatInterface = () => {
       globalChatService.setCurrentRoom(room.id);
       setCurrentRoom(room);
       setMessages(room.messages);
+      
+      // 초기 메시지 추가하여 AI 제안을 위한 컨텍스트 생성
+      setTimeout(() => {
+        globalChatService.sendUserMessage("안녕하세요! 새로운 채팅방이 생성되었습니다.", "시스템");
+      }, 500);
     } else {
       // 기존 데이터 복원
       const roomId = globalChatService.currentRoomId;
@@ -476,15 +782,6 @@ const ChatInterface = () => {
     const removeListener = globalChatService.onMessage((message, room) => {
       setMessages([...room.messages]);
       
-      // AI 메시지가 생성 중일 때 타이핑 인디케이터 표시
-      if (message.type === MESSAGE_TYPES.USER && globalChatService.isAIEnabled) {
-        setIsTyping(true);
-        // AI 응답이 오면 타이핑 인디케이터 숨기기
-        setTimeout(() => setIsTyping(false), 3000);
-      } else if (message.type === MESSAGE_TYPES.AI) {
-        setIsTyping(false);
-      }
-
       // 로컬스토리지에 저장
       globalChatService.saveToLocalStorage();
     });
@@ -492,29 +789,50 @@ const ChatInterface = () => {
     // 정리 함수
     return () => {
       removeListener();
+      if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+      }
     };
   }, []);
 
-  // 메시지 전송 핸들러
+  // 메시지 전송 핸들러 (사용자만 메시지 전송, AI는 제안만)
   const handleSendMessage = async (content) => {
     try {
-      await globalChatService.sendMessage(content, MESSAGE_TYPES.USER, 'User');
+      // 랜덤 사용자명 생성 (실제 구현에서는 로그인 시스템 활용)
+      const userNames = ['김철수', '이영희', '박민수', '최하나', '정다솜'];
+      const randomUser = userNames[Math.floor(Math.random() * userNames.length)];
+      
+      await globalChatService.sendUserMessage(content, randomUser);
+      
+      // 제안 초기화
+      setAiSuggestion('');
     } catch (error) {
       console.error('Failed to send message:', error);
     }
+  };
+
+  // AI 제안 수락 핸들러
+  const handleAcceptSuggestion = (suggestion) => {
+    console.log('AI suggestion accepted:', suggestion);
+    // 제안이 수락되면 새로운 제안 생성을 위해 초기화
+    setAiSuggestion('');
   };
 
   // AI 토글 핸들러
   const handleToggleAI = () => {
     const newState = globalChatService.toggleAI();
     setIsAIEnabled(newState);
+    
+    if (!newState) {
+      setAiSuggestion(''); // AI 비활성화 시 제안 클리어
+    }
   };
 
   // AI 설정 핸들러
   const handleConfigureAI = async (config) => {
     try {
       await globalChatService.configureAI(config);
-      console.log('AI configured successfully:', config);
+      console.log('AI configured for suggestions:', config);
     } catch (error) {
       console.error('Failed to configure AI:', error);
       alert('AI 설정 실패: ' + error.message);
@@ -555,8 +873,6 @@ const ChatInterface = () => {
           <ChatMessage key={message.id} message={message} />
         ))}
         
-        <TypingIndicator isVisible={isTyping} />
-        
         <div ref={messagesEndRef} />
       </div>
 
@@ -564,7 +880,25 @@ const ChatInterface = () => {
       <ChatInput
         onSendMessage={handleSendMessage}
         disabled={false}
+        aiSuggestion={aiSuggestion}
+        onAcceptSuggestion={handleAcceptSuggestion}
       />
+      
+      {isGeneratingSuggestion && (
+        <div style={{
+          position: 'absolute',
+          bottom: '80px',
+          right: '20px',
+          background: 'rgba(0,0,0,0.8)',
+          color: 'white',
+          padding: '8px 12px',
+          borderRadius: '20px',
+          fontSize: '12px',
+          zIndex: 1000
+        }}>
+          💭 AI가 제안을 생각하는 중...
+        </div>
+      )}
     </div>
   );
 };

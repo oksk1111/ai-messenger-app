@@ -731,6 +731,41 @@ export class ChatService {
     this.currentRoomId = null;
     this.messageListeners = [];
     this.isAIEnabled = true;
+    
+    // 실시간 동기화를 위한 BroadcastChannel 설정
+    this.broadcastChannel = new BroadcastChannel('ai-messenger-sync');
+    this.setupBroadcastSync();
+    
+    // 주기적 동기화를 위한 타이머 (fallback)
+    this.syncInterval = setInterval(() => {
+      this.syncWithStorage();
+    }, 1000); // 1초마다 체크
+    
+    // 창이 닫힐 때 정리
+    window.addEventListener('beforeunload', () => {
+      this.cleanup();
+    });
+  }
+
+  /**
+   * BroadcastChannel 동기화 설정
+   */
+  setupBroadcastSync() {
+    this.broadcastChannel.addEventListener('message', (event) => {
+      const { type, data } = event.data;
+      
+      switch (type) {
+        case 'NEW_MESSAGE':
+          this.handleSyncNewMessage(data);
+          break;
+        case 'ROOM_UPDATE':
+          this.handleSyncRoomUpdate(data);
+          break;
+        case 'STORAGE_UPDATE':
+          this.syncWithStorage();
+          break;
+      }
+    });
   }
 
   /**
@@ -739,6 +774,117 @@ export class ChatService {
   configureAI(config) {
     this.aiGenerator = new AIMessageGenerator(config);
     return this.aiGenerator.initialize();
+  }
+
+  /**
+   * 동기화된 새 메시지 처리
+   */
+  handleSyncNewMessage(messageData) {
+    if (!messageData.roomId || messageData.roomId !== this.currentRoomId) {
+      return;
+    }
+
+    const room = this.rooms.get(messageData.roomId);
+    if (!room) return;
+
+    // 이미 존재하는 메시지인지 확인
+    const existingMessage = room.findMessage(messageData.message.id);
+    if (existingMessage) return;
+
+    // 새 메시지 추가
+    const message = ChatMessage.fromJSON(messageData.message);
+    room.messages.push(message);
+    
+    // 리스너들에게 알림 (단, 브로드캐스트는 하지 않음)
+    this.notifyMessageListeners(message, room, false);
+  }
+
+  /**
+   * 동기화된 방 업데이트 처리
+   */
+  handleSyncRoomUpdate(roomData) {
+    const room = this.rooms.get(roomData.id);
+    if (!room) return;
+
+    // 방 정보 업데이트
+    room.name = roomData.name;
+    room.participants = roomData.participants;
+    room.isActive = roomData.isActive;
+  }
+
+  /**
+   * 스토리지와 동기화
+   */
+  syncWithStorage() {
+    try {
+      const data = localStorage.getItem('ai_messenger_chat_data');
+      if (!data) return;
+
+      const parsed = JSON.parse(data);
+      const currentDataHash = this.getDataHash();
+      const storageDataHash = this.calculateDataHash(parsed);
+
+      // 데이터가 변경되었을 때만 동기화
+      if (currentDataHash !== storageDataHash) {
+        this.loadFromLocalStorage();
+        // UI 업데이트를 위해 리스너들에게 알림
+        this.notifyStorageSync();
+      }
+    } catch (error) {
+      console.error('Storage sync failed:', error);
+    }
+  }
+
+  /**
+   * 데이터 해시 계산
+   */
+  getDataHash() {
+    const roomsData = Array.from(this.rooms.entries()).map(([id, room]) => ({
+      id,
+      messageCount: room.messages.length,
+      lastMessageId: room.messages.length > 0 ? room.messages[room.messages.length - 1].id : null
+    }));
+    return JSON.stringify(roomsData);
+  }
+
+  /**
+   * 파싱된 데이터의 해시 계산
+   */
+  calculateDataHash(parsed) {
+    if (!parsed.rooms) return '';
+    
+    const roomsData = parsed.rooms.map(([id, roomData]) => ({
+      id,
+      messageCount: roomData.messages ? roomData.messages.length : 0,
+      lastMessageId: roomData.messages && roomData.messages.length > 0 ? 
+        roomData.messages[roomData.messages.length - 1].id : null
+    }));
+    return JSON.stringify(roomsData);
+  }
+
+  /**
+   * 스토리지 동기화 알림
+   */
+  notifyStorageSync() {
+    this.messageListeners.forEach(callback => {
+      try {
+        callback({ type: 'STORAGE_SYNC' });
+      } catch (error) {
+        console.error('Storage sync listener error:', error);
+      }
+    });
+  }
+
+  /**
+   * 정리 작업
+   */
+  cleanup() {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+    }
+    if (this.broadcastChannel) {
+      this.broadcastChannel.close();
+    }
   }
 
   /**
@@ -792,8 +938,20 @@ export class ChatService {
     // 메시지를 방에 추가
     room.addMessage(message);
     
+    // 로컬 스토리지에 즉시 저장
+    this.saveToLocalStorage();
+    
+    // 다른 탭들에게 새 메시지 브로드캐스트
+    this.broadcastChannel.postMessage({
+      type: 'NEW_MESSAGE',
+      data: {
+        roomId: this.currentRoomId,
+        message: message.toJSON()
+      }
+    });
+    
     // 리스너들에게 새 메시지 알림
-    this.notifyMessageListeners(message, room);
+    this.notifyMessageListeners(message, room, true);
 
     return message;
   }
@@ -839,7 +997,7 @@ export class ChatService {
   /**
    * 메시지 리스너들에게 알림
    */
-  notifyMessageListeners(message, room) {
+  notifyMessageListeners(message, room, shouldBroadcast = true) {
     this.messageListeners.forEach(callback => {
       try {
         callback(message, room);

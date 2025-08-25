@@ -780,10 +780,25 @@ const ChatInterface = () => {
 
     // 메시지 리스너 등록
     const removeListener = globalChatService.onMessage((message, room) => {
-      setMessages([...room.messages]);
-      
-      // 로컬스토리지에 저장
-      globalChatService.saveToLocalStorage();
+      // 스토리지 동기화 이벤트 처리
+      if (message && message.type === 'STORAGE_SYNC') {
+        // 스토리지 동기화 시 현재 방의 메시지들 다시 로드
+        const currentRoom = globalChatService.getRoom(globalChatService.currentRoomId);
+        if (currentRoom) {
+          setMessages([...currentRoom.messages]);
+        }
+        return;
+      }
+
+      // 일반 메시지 처리
+      if (room && room.messages) {
+        setMessages([...room.messages]);
+        
+        // 로컬스토리지에 저장 (메시지 발신자가 아닌 경우에만)
+        if (!message || message.sender !== globalChatService.currentUser) {
+          globalChatService.saveToLocalStorage();
+        }
+      }
     });
 
     // 정리 함수
